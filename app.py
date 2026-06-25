@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
+from datetime import datetime
 
 # ── 페이지 설정 ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="수강생 현황 대시보드", layout="wide", page_icon="🎓")
@@ -75,6 +77,51 @@ st.markdown("""
     <p>기본정보 + 성과·취업현황 파일을 업로드하면 통합 분석 결과를 확인할 수 있습니다.</p>
 </div>
 """, unsafe_allow_html=True)
+
+# ── 서울 날씨 (open-meteo) ────────────────────────────────────────────────────
+@st.cache_data(ttl=600)
+def fetch_seoul_weather():
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=37.5665&longitude=126.9780"
+        "&current=temperature_2m"
+        "&hourly=temperature_2m"
+        "&timezone=Asia%2FSeoul"
+        "&forecast_days=1"
+    )
+    r = requests.get(url, timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+with st.spinner("날씨 정보 불러오는 중..."):
+    try:
+        wx = fetch_seoul_weather()
+        current_temp = wx["current"]["temperature_2m"]
+        current_time = wx["current"]["time"]
+
+        hours = wx["hourly"]["time"]
+        temps = wx["hourly"]["temperature_2m"]
+        today = current_time[:10]
+        hourly_df = pd.DataFrame({"시각": hours, "기온(°C)": temps})
+        hourly_df = hourly_df[hourly_df["시각"].str.startswith(today)].copy()
+        hourly_df["시각"] = pd.to_datetime(hourly_df["시각"]).dt.strftime("%H:%M")
+        hourly_df = hourly_df.set_index("시각")
+
+        now_str = datetime.fromisoformat(current_time).strftime("%Y-%m-%d %H:%M")
+
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🌤️ 서울 현재 날씨 (open-meteo)</div>', unsafe_allow_html=True)
+        wcol1, wcol2 = st.columns([1, 3], gap="large")
+        with wcol1:
+            st.metric(label=f"현재 기온 ({now_str})", value=f"{current_temp}°C")
+        with wcol2:
+            st.line_chart(hourly_df, color="#4F8EF7", height=200)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    except Exception as e:
+        st.warning(f"날씨 정보를 불러오지 못했습니다: {e}")
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ── 파일 업로드 ───────────────────────────────────────────────────────────────
 col_up1, col_up2 = st.columns(2)
